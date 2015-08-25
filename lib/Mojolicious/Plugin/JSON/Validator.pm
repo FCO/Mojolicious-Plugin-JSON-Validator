@@ -35,18 +35,22 @@ sub register {
 		}
 		my @errors = $c->validate_json;
 		if($autovalid eq "render") {
-			$c->res->code($c->stash->{'json.validator.code'} || 400) if @errors;
-			if(my $template = $c->stash->{'json.validator.template_error'}) {
-				$c->render($template)
-			} elsif(my $inline = $c->stash->{'json.validator.inline_error'}) {
-				$c->render(inline => $inline)
+			if(@errors) {
+				$c->res->code($c->stash->{'json.validator.code'} || 400);
+				if(my $template = $c->stash->{'json.validator.template_error'}) {
+					$c->render($template)
+				} elsif(my $inline = $c->stash->{'json.validator.inline_error'}) {
+					$c->render(inline => $inline)
+				} else {
+					$c->render(json => {errors => [@errors]});
+					#$c->respond_to(
+					#	json	=> {json => {errors => [@errors]}},
+					#	#xml	=> {inline => "<errors><% for my $err(@$errors) { %> <error><%= $err %></error> <% } %></errors>", errors => [@errors]},
+					#	#html	=> {inline => "<ul><% for my $err(@$errors) { %> <li><%= $err %></li> <% } %></ul>", errors => [@errors]},
+					#)
+				}
 			} else {
-				$c->render(json => {errors => [@errors]});
-				#$c->respond_to(
-				#	json	=> {json => {errors => [@errors]}},
-				#	#xml	=> {inline => "<errors><% for my $err(@$errors) { %> <error><%= $err %></error> <% } %></errors>", errors => [@errors]},
-				#	#html	=> {inline => "<ul><% for my $err(@$errors) { %> <li><%= $err %></li> <% } %></ul>", errors => [@errors]},
-				#)
+				$next->();
 			}
 		} else {
 			$c->$action(@errors)
