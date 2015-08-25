@@ -6,27 +6,52 @@ use JSON::Validator;
 our $VERSION = '0.01';
 
 sub register {
-	my ($self, $app) = @_;
+	my ($self, $app, $config) = @_;
+	my $format	= $config->{format}		|| 'json';
+	my $validator	= $config->{validator}		|| JSON::Validator->new;
+	my $autovalid	= $config->{auto_validate};
 
+	$app->helper(
+		validate_json => sub {
+			my $c      = shift;
+			my $data   = shift || $c->req->json;
+			my $schema = shift || $c->stash('json.validator.schema');
+
+			unless ($schema) {
+				my $controller	= $c->stash->{controller};
+				my $action	= $c->stash->{action};
+				$schema = ($controller and $action) ? join '/', split('-', decamelize $controller), $action : 'default';
+				$schema .= ".spec.$format";
+			}
+			print $schema, $/;
+
+			return $validator->schema($schema)->validate($data);
+		}
+	);
 	$app->hook(around_action => sub {
 		my ($next, $c, $action, $last) = @_;
-
-		my $route = $c->match->endpoint;
-		my $schema;
-		if($route->to->{"json_validator.schema"}) {
-			$schema = $route->to->{"json_validator.schema"};
-		} else {
-			$schema = $app->home->rel_file(sprintf "%s.schema.json", $route->name);
+		if(not $c->stash->{'json.validator.schema'}) {
+			return $next->();
 		}
-
-		if(ref $schema or $schema =~ m{^\w+://} or -f $schema) {
-			my $validator = JSON::Validator->new->schema($schema);
-			if(my @errors = $validator->validate($c->req->json)) {
-				return $c->render(status_code => 400, json => {errors => [@errors]});
+		my @errors = $c->validate_json;
+		if($autovalid eq "render") {
+			$c->res->code($c->stash->{'json.validator.code'} || 400) if @errors;
+			if(my $template = $c->stash->{'json.validator.template_error'}) {
+				$c->render($template)
+			} elsif(my $inline = $c->stash->{'json.validator.inline_error'}) {
+				$c->render(inline => $inline)
+			} else {
+				$c->render(json => {errors => [@errors]});
+				#$c->respond_to(
+				#	json	=> {json => {errors => [@errors]}},
+				#	#xml	=> {inline => "<errors><% for my $err(@$errors) { %> <error><%= $err %></error> <% } %></errors>", errors => [@errors]},
+				#	#html	=> {inline => "<ul><% for my $err(@$errors) { %> <li><%= $err %></li> <% } %></ul>", errors => [@errors]},
+				#)
 			}
+		} else {
+			$c->$action(@errors)
 		}
-		$next->()
-	});
+	}) if $autovalid;
 }
 
 1;
@@ -41,15 +66,15 @@ Mojolicious::Plugin::JSON::Validator - Mojolicious Plugin
 =head1 SYNOPSIS
 
   # Mojolicious
-  $self->plugin('JSON::Validator');
+  $self->plugin('JSON::Validator', auto_validate => render);
 
-  $r->post("/bla")->to("cont#act1", "json_validator.schema" => "file.schema.json");
-  $r->post("/ble")->to("cont#act2", "json_validator.schema" => "file.schema.yaml");
-  $r->post("/bli")->to("cont#act3", "json_validator.schema" => {type => 'string', minLength => 3, maxLength => 10});
+  $r->post("/bla")->to("cont#act1", "json.validator.schema" => "file.schema.json");
+  $r->post("/ble")->to("cont#act2", "json.validator.schema" => "file.schema.yaml");
+  $r->post("/bli")->to("cont#act3", "json.validator.schema" => {type => 'string', minLength => 3, maxLength => 10});
 
   # Mojolicious::Lite
   use Mojolicious::Lite;
-  plugin "JSON::Validator";
+  plugin JSON::Validator => auto_validate => "render";
 
   post "/" => sub{shift->render(text => "OK\n")} => "bla";
 
