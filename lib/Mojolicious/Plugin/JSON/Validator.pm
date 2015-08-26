@@ -23,7 +23,6 @@ sub register {
 				$schema = ($controller and $action) ? join '/', split('-', decamelize $controller), $action : 'default';
 				$schema .= ".spec.$format";
 			}
-			print $schema, $/;
 
 			return $validator->schema($schema)->validate($data);
 		}
